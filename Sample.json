@@ -1,0 +1,18 @@
+[
+  {
+    "transactionReference": "1234",
+    "accountNumber": "456",
+    "startBalance": 12,
+    "mutation": -12,
+    "description": "cscsc",
+    "endBalance": 0
+  },
+  {
+    "transactionReference": "12341",
+    "accountNumber": "456",
+    "startBalance": 12,
+    "mutation": 23,
+    "description": "cscsc",
+    "endBalance": 35
+  }
+]
