@@ -7,7 +7,7 @@ spring boot web application that runs the Customer Statement Processor.
  
 ### Prerequisites
 * [Java 1.8](http://www.oracle.com/technetwork/java/javase/downloads/index.html) 
-* [Maven 3.8.1](https://maven.apache.org/download.cgi)
+* [Maven 3.8.1](https://maven.apache.org/download.cgi) (I used)
 
 ### Build & run 
 ```
