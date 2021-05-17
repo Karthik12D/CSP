@@ -20,6 +20,6 @@ $ mvn spring-boot:run
 ```
 
 ## Built With
-* [Spring boot 2.3.5.RELEASE ](https://projects.spring.io/spring-boot/) - Backed Framework
+* [Spring boot 2.3.5.RELEASE ](https://projects.spring.io/spring-boot/) - Backend Framework
 * [Maven](https://maven.apache.org/) - Dependency Management
 
