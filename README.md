@@ -1,7 +1,7 @@
 spring boot web application that runs the Customer Statement Processor.
 
 ## About the Application
-* Application validates the customer statement records and provides validation results. 
+* Application validates the customer statement records and provides validation results. Use example json which is part of the project to execute ans see results. You can modify the json for error scenario and test it as well
 
 ## Install & Running
  
