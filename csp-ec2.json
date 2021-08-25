@@ -1,1 +1,373 @@
-
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "EC2 stack",
+  "Parameters": {
+    "ImageSSMParameter": {
+      "Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
+      "Default": "latest-ami"
+    },
+    "InstanceType": {
+      "Description": "Redirect  - EC2",
+      "Type": "String",
+      "Default": "m5.xlarge",
+      "AllowedValues": [
+        "m5.large",
+        "m5.xlarge",
+        "m5.2xlarge",
+        "m5.4xlarge"
+      ],
+      "ConstraintDescription": "Choose one of the allowed instance type."
+    },
+    "AlbCertificateArn": {
+      "Default": "",
+      "Description": "ALBtCertificateArn for Redirect",
+      "Type": "String"
+    },
+    "KeyName": {
+      "Description": "SSH Key to access instances",
+      "Type": "AWS::EC2::KeyPair::KeyName",
+      "Default": "",
+      "ConstraintDescription": "EC2 KeyPair."
+    },
+    "ALBTargetPort": {
+      "Description": "The port the load balancer uses when routing traffic to targets in the target group (1-65535).",
+      "Type": "Number",
+      "Default": 8080
+    },
+    "ALBDrainTimeout": {
+      "Description": "Optional - Draining/deregistration timeout in seconds (default is 5mins).",
+      "Type": "String",
+      "Default": 300
+    },
+    "ALBListenerPort": {
+      "Type": "String",
+      "Description": "Loadbalancer HTTP listener port.",
+      "Default": 8080
+    },
+    "RedirectSecurityGroup": {
+      "Default": "redirect-management-security-group",
+      "Type": "AWS::SSM::Parameter::Value<String>"
+    }
+  },
+  "Resources": {
+    "EC2Instance": {
+      "Type": "AWS::EC2::Instance",
+      "Metadata": {
+        "AWS::CloudFormation::Init": {
+          "configSets": {
+            "Install": [
+              "Install"
+            ]
+          },
+          "Install": {
+            "packages": {
+              "yum": {
+                "java-1.8.0-openjdk-devel": []
+              }
+            },
+            "files": {
+              "/tmp/startup_script.sh": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/sh \n",
+                      "aws s3 cp s3://s3bucket/redirect-app.jar /tmp/app/app.jar \n",
+                      "java -jar app/app.jar \n"
+                    ]
+                  ]
+                },
+                "mode": "000755"
+              }
+            },
+            "commands": {
+              "remove-java7": {
+                "command": "yum remove -y java-1.7.0-openjdk",
+                "cwd": "~"
+              },
+              "run-jar": {
+                "command": "./startup_script.sh",
+                "cwd": "/tmp/"
+              }
+            }
+          }
+        }
+      },
+      "Properties": {
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "KeyName": {
+          "Ref": "KeyName"
+        },
+        "IamInstanceProfile": {
+          "Ref": "InstanceProfile"
+        },
+        "Tags" : [
+          {
+            "Key" : "AutoRotate",
+            "Value" : "AFTER_OFFICE_HOURS"
+          }
+        ],
+        "SecurityGroupIds": [
+          {
+            "Ref": "RedirectSecurityGroup"
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash -xe\n",
+                "yum install -y aws-cfn-bootstrap\n",
+                "# Install the files and packages from the metadata\n",
+                "/opt/aws/bin/cfn-init -v ",
+                "         --stack ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "         --resource EC2Instance ",
+                "         --configsets Install ",
+                "         --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "\n"
+              ]
+            ]
+          }
+        },
+        "SubnetId": "{{resolve:ssm:private-subnet1-id:1}}",
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/sda1",
+            "Ebs": {
+              "VolumeType": "gp2",
+              "DeleteOnTermination": "true",
+              "VolumeSize": "100"
+            }
+          }
+        ],
+        "ImageId": {
+          "Ref": "ImageSSMParameter"
+        }
+      }
+    },
+    "EC2ALB": {
+      "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+      "Properties": {
+        "Name": "redirect-alb",
+        "Scheme": "internal",
+        "LoadBalancerAttributes": [
+          {
+            "Key": "idle_timeout.timeout_seconds",
+            "Value": "600"
+          }
+        ],
+        "Subnets": [
+          "{{resolve:ssm:-private-subnet1-id:1}}",
+          "{{resolve:ssm:-private-subnet2-id:1}}",
+          "{{resolve:ssm:-private-subnet3-id:1}}"
+        ],
+        "SecurityGroups": [
+          {
+            "Ref": "ALBSecurityGroup"
+          }
+        ]
+      }
+    },
+    "EC2ALBListner": {
+      "Type": "AWS::ElasticLoadBalancingV2::Listener",
+      "Properties": {
+        "DefaultActions": [
+          {
+            "Type": "forward",
+            "TargetGroupArn": {
+              "Ref": "EC2TargetGroup"
+            }
+          }
+        ],
+        "Certificates": [{
+          "CertificateArn": { "Ref": "AlbCertificateArn" }
+        }],
+        "LoadBalancerArn": {
+          "Ref": "EC2ALB"
+        },
+        "Port": 443,
+        "Protocol": "HTTPS"
+      }
+    },
+    "EC2TargetGroup": {
+      "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+      "Properties": {
+        "HealthCheckIntervalSeconds": 60,
+        "HealthCheckProtocol": "HTTP",
+        "HealthCheckPath": "/index.html",
+        "HealthCheckTimeoutSeconds": 59,
+        "HealthyThresholdCount": 2,
+        "Port": 8080,
+        "Protocol": "HTTP",
+        "Targets": [
+          {
+            "Id": {
+              "Ref": "EC2Instance"
+            },
+            "Port": 8080
+          }
+        ],
+        "UnhealthyThresholdCount": 2,
+        "VpcId": "{{resolve:ssm:vpc-id:1}}"
+      }
+    },
+    "Route53RecordALB": {
+      "Type": "AWS::Route53::RecordSet",
+      "Properties": {
+        "HostedZoneId": "",
+        "Name": {
+          "Fn::Join": [
+            ".",
+            [
+              "app.nl.com"
+            ]
+          ]
+        },
+        "Type": "A",
+        "AliasTarget": {
+          "DNSName": {
+            "Fn::GetAtt": [
+              "EC2ALB",
+              "DNSName"
+            ]
+          },
+          "EvaluateTargetHealth": false,
+          "HostedZoneId" : { "Fn::GetAtt" : ["EC2ALB", "CanonicalHostedZoneID"] }
+        }
+      }
+    },
+    "InstanceProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/",
+        "Roles": [
+          {
+            "Ref": "InstanceRole"
+          }
+        ]
+      }
+    },
+    "InstanceRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "ec2.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path": "/",
+        "PermissionsBoundary": {
+          "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:policy"
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              ":",
+              [
+                "arn:aws:iam:",
+                {
+                  "Ref": "AWS::AccountId"
+                },
+              ]
+            ]
+          }
+        ],
+        "Policies": [
+          {
+            "PolicyName": "ec2-instance-s3-policy",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "s3:*",
+                  "Resource": "*"
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "AllowLogging",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents",
+                    "logs:PutRetentionPolicy",
+                    "logs:DescribeLogStreams",
+                    "logs:GetLogEvents",
+                    "cloudwatch:PutMetricData",
+                    "cloudwatch:GetMetricStatistics",
+                    "cloudwatch:ListMetrics",
+                    "s3:GetObject",
+                    "s3:ListBucket",
+                    "s3:GetObjectAcl"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "ALBSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "DDA ALB SG",
+        "VpcId": "{{resolve:ssm:vpc-id:1}}"
+      }
+    },
+    "ALBSecurityGroupHTTPinbound": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "ALBSecurityGroup"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": "443",
+        "ToPort": "443",
+        "CidrIp": "10.0.0.0/8"
+      }
+    }
+  },
+  "Outputs": {
+    "DnsUrl": {
+      "Description": "Internally accessible URL of the Application",
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "https://",
+            {
+              "Ref": "Route53RecordALB"
+            }
+          ]
+        ]
+      }
+    }
+  }
+}
