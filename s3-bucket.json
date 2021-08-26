@@ -1,0 +1,185 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": " s3 bucket",
+  "Parameters": {
+    "ApplicationName": {
+      "Type": "String",
+      "Default": "app",
+      "Description": "Specify here the application name, dda-api has been kept as default."
+    }
+  },
+  "Resources": {
+    "AppBucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "AccessControl": "Private",
+        "BucketName": {
+          "Fn::Sub": "app-s3-bucket"
+        },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "AppBucketSSMParameter": {
+      "Type": "AWS::SSM::Parameter",
+      "Properties": {
+        "Description": "Parameter store for App Bucket Name",
+        "Name": {
+          "Fn::Sub": "app-s3-bucket-ssm"
+        },
+        "Type": "String",
+        "Value": {
+          "Ref": "AppBucket"
+        }
+      }
+    },
+    "AppBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "AppBucket"
+        },
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "s3:PutObject",
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::Sub": "${AppBucket.Arn}"
+                },
+                {
+                  "Fn::Sub": "${AppBucket.Arn}/*"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "AppECSTaskRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {
+          "Fn::Sub": "app-task-role"
+        },
+        "Path": "/",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+              }
+            }
+          ]
+        },
+        "PermissionsBoundary": {
+          "Fn::Sub": "permission-boundary"
+        },
+        "Policies": [
+          {
+            "PolicyName": {
+              "Fn::Sub": "app-ecs-task-policy"
+            },
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:GetObjectACL",
+                    "s3:ListBucket",
+                    "secretsmanager:Describe*",
+                    "secretsmanager:Get*",
+                    "secretsmanager:List*"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "AppECSTaskRoleARNSSMParameter": {
+      "Type": "AWS::SSM::Parameter",
+      "Properties": {
+        "Description": "Parameter store for storing Role ARN of ECS Task",
+        "Name": {
+          "Fn::Sub": "app-ecs-task-role-arn"
+        },
+        "Type": "String",
+        "Value": {
+          "Fn::GetAtt": [
+            "AppECSTaskRole",
+            "Arn"
+          ]
+        }
+      }
+    },
+    "AppECSTaskRoleNameSSMParameter": {
+      "Type": "AWS::SSM::Parameter",
+      "Properties": {
+        "Description": "Parameter store for storing Role Name of ECS Task",
+        "Name": {
+          "Fn::Sub": "app-ecs-task-role-name"
+        },
+        "Type": "String",
+        "Value": { "Ref": "AppECSTaskRole"}
+      }
+    },
+    "AppALBCertificate": {
+      "Type": "AWS::CertificateManager::Certificate",
+      "Properties": {
+        "DomainName": "app.com",
+        "ValidationMethod": "DNS"
+      }
+    },
+    "AppALBCertificateSSMParameter": {
+      "Type": "AWS::SSM::Parameter",
+      "Properties": {
+        "Description": "Parameter store for storing Arn of ALB Certificate",
+        "Name": {
+          "Fn::Sub": "app-alb-certificate-live"
+        },
+        "Type": "String",
+        "Value": {
+          "Ref": "AppALBCertificate"
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "AppALBCertificateSSMParameter": {
+      "Value": {
+        "Ref": "AppALBCertificateSSMParameter"
+      }
+    },
+    "AppECSTaskRoleARNSSMParameter": {
+      "Value": {
+        "Fn::GetAtt": [
+          "AppECSTaskRole",
+          "Arn"
+        ]
+      }
+    },
+    "AppECSTaskRoleNameSSMParameter": {
+      "Value": { "Ref": "AppECSTaskRole"}
+    },
+    "AppBucketSSMParameter": {
+      "Value": {
+        "Ref": "AppBucketSSMParameter"
+      }
+    }
+  }
+}
